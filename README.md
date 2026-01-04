@@ -14,3 +14,23 @@ A few resources to get you started if this is your first Flutter project:
 For help getting started with Flutter development, view the
 [online documentation](https://docs.flutter.dev/), which offers tutorials,
 samples, guidance on mobile development, and a full API reference.
+=======
+
+# AI Personal Finance Coach
+
+A mobile application that helps users track expenses and receive AI-powered financial advice.
+
+## Tech Stack
+
+- Flutter
+- Firebase Authentication
+- Node.js
+- MongoDB
+
+## Architecture
+
+Flutter → Firebase Auth → Node.js API → MongoDB → AI Engine
+
+## Status
+
+Day 1: Planning & architecture completed.
