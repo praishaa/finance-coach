@@ -36,7 +36,16 @@ Provide 2-3 actionable tips.
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
+          contents: [
+            {
+              role: "user",
+              parts: [{ text: prompt }],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.9,
+            maxOutputTokens: 200,
+          },
         }),
       }
     );
@@ -45,7 +54,7 @@ Provide 2-3 actionable tips.
 
     const advice =
       data?.candidates?.[0]?.content?.parts?.[0]?.text ||
-      "Track expenses consistently to get better insights.";
+      "AI response unavailable.";
 
     res.json({ advice });
   } catch (err) {
