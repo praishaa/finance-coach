@@ -1,139 +1,215 @@
 const express = require("express");
 const router = express.Router();
 const Expense = require("../models/expense");
-const auth = require("../middleware/auth"); // ADD THIS
+const mongoose = require("mongoose");
+const auth = require("../middleware/auth");
 
-// POST /advice - ADD AUTH MIDDLEWARE
-
-// POST /advice - AI-powered spending advice
+/* ---------------- ADD EXPENSE ---------------- */
+// POST /expenses
 router.post("/", auth, async (req, res) => {
   try {
-    console.log("🔑 User ID:", req.userId);
+    const { amount, category, date } = req.body;
 
-    const expenses = await Expense.find({ userId: req.userId })
-      .sort({ createdAt: -1 })
-      .limit(20);
+    const expense = new Expense({
+      amount,
+      category,
+      userId: req.userId,
+      createdAt: date ? new Date(date) : new Date(),
+    });
 
-    console.log("📊 Expenses found:", expenses.length);
-
-    if (!expenses || expenses.length === 0) {
-      return res.json({
-        advice: "Start tracking your expenses to get personalized advice!",
-      });
-    }
-
-    const expenseSummary = expenses
-      .map((e) => `₹${e.amount} - ${e.category}`)
-      .join("\n");
-
-    const prompt = `
-You are a personal finance coach.
-Give short, practical advice based on the user's spending patterns.
-
-Recent expenses:
-${expenseSummary}
-
-Provide 2-3 actionable tips to improve spending habits.
-Keep it concise and friendly.
-`;
-
-    console.log("🤖 Calling Gemini API...");
-    console.log("🔑 API Key exists:", !!process.env.GEMINI_API_KEY);
-
-    const aiResponse = await fetch(
-      `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-        }),
-      }
-    );
-
-    console.log("📡 Gemini response status:", aiResponse.status);
-
-    const aiData = await aiResponse.json();
-    console.log("📄 Gemini response:", JSON.stringify(aiData, null, 2));
-
-    if (!aiResponse.ok) {
-      console.error("❌ Gemini API error:", aiData);
-      throw new Error(`Gemini API error: ${aiResponse.status}`);
-    }
-
-    const advice =
-      aiData?.candidates?.[0]?.content?.parts?.[0]?.text ??
-      "Track expenses consistently to get better insights.";
-
-    console.log("✅ Final advice:", advice);
-
-    res.json({ advice });
-  } catch (error) {
-    console.error("❌ AI advice error:", error);
-    res
-      .status(500)
-      .json({ error: "Advice generation failed", details: error.message });
+    await expense.save();
+    res.json({ message: "Expense added successfully" });
+  } catch (err) {
+    console.error("ADD EXPENSE ERROR:", err.message);
+    res.status(500).json({ error: "Failed to add expense" });
   }
 });
 
-// POST /advice/investment
-router.post("/investment", async (req, res) => {
+/* ---------------- GET ALL EXPENSES ---------------- */
+// GET /expenses
+router.get("/", auth, async (req, res) => {
   try {
-    const { riskLevel } = req.body;
+    const expenses = await Expense.find({ userId: req.userId }).sort({
+      createdAt: -1,
+    });
+    res.json(expenses);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch expenses" });
+  }
+});
 
-    // fetch expenses
-    const expenses = await Expense.find();
-    const totalSpent = expenses.reduce((sum, e) => sum + Number(e.amount), 0);
+/* ---------------- MONTH SUMMARY ---------------- */
+// GET /expenses/summary?month=1&year=2026
+router.get("/summary", auth, async (req, res) => {
+  try {
+    const month = parseInt(req.query.month);
+    const year = parseInt(req.query.year);
 
-    let advice = "";
-
-    if (riskLevel === "Low") {
-      advice = `
-You have a low risk appetite.
-Recommended options:
-• Fixed Deposits
-• Debt mutual funds
-• Recurring deposits
-• Emergency fund (6 months expenses)
-Avoid volatile investments.
-`;
-    } else if (riskLevel === "Medium") {
-      advice = `
-You have a moderate risk appetite.
-Recommended options:
-• SIPs in index funds
-• Balanced mutual funds
-• Some exposure to ETFs
-Maintain diversification.
-`;
-    } else if (riskLevel === "High") {
-      advice = `
-You have a high risk appetite.
-Recommended options:
-• Equity mutual funds
-• Index ETFs
-• Long-term SIPs
-Ensure emergency fund before investing.
-`;
+    if (!month || !year) {
+      return res.status(400).json({ error: "Month and year required" });
     }
+
+    const start = new Date(year, month - 1, 1, 0, 0, 0);
+    const end = new Date(year, month, 0, 23, 59, 59);
+
+    const match = {
+      userId: new mongoose.Types.ObjectId(req.userId),
+      createdAt: { $gte: start, $lte: end },
+    };
+
+    const totalResult = await Expense.aggregate([
+      { $match: match },
+      { $group: { _id: null, totalSpent: { $sum: "$amount" } } },
+    ]);
+
+    const categoryResult = await Expense.aggregate([
+      { $match: match },
+      {
+        $group: {
+          _id: "$category",
+          total: { $sum: "$amount" },
+        },
+      },
+    ]);
+
+    const categoryTotals = {};
+    categoryResult.forEach((c) => {
+      categoryTotals[c._id] = c.total;
+    });
 
     res.json({
-      investmentAdvice: advice.trim(),
-      totalSpent,
+      totalSpent: totalResult[0]?.totalSpent || 0,
+      categoryTotals,
     });
   } catch (err) {
-    res.status(500).json({ error: "Investment advice failed" });
+    res.status(500).json({ error: "Failed to fetch summary" });
   }
 });
 
-/* ---------------- GET: Fetch expense history ---------------- */
-router.get("/", async (req, res) => {
+/* ---------------- DAY SUMMARY ---------------- */
+// GET /expenses/summary/day?date=2026-01-04
+router.get("/summary/day", auth, async (req, res) => {
   try {
-    const expenses = await Expense.find().sort({ createdAt: -1 });
-    res.json(expenses);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+    const date = new Date(req.query.date);
+
+    const start = new Date(date);
+    start.setHours(0, 0, 0, 0);
+
+    const end = new Date(date);
+    end.setHours(23, 59, 59, 999);
+
+    const match = {
+      userId: new mongoose.Types.ObjectId(req.userId),
+      createdAt: { $gte: start, $lte: end },
+    };
+
+    const totalResult = await Expense.aggregate([
+      { $match: match },
+      { $group: { _id: null, totalSpent: { $sum: "$amount" } } },
+    ]);
+
+    const categoryResult = await Expense.aggregate([
+      { $match: match },
+      {
+        $group: {
+          _id: "$category",
+          total: { $sum: "$amount" },
+        },
+      },
+    ]);
+
+    const categoryTotals = {};
+    categoryResult.forEach((c) => {
+      categoryTotals[c._id] = c.total;
+    });
+
+    res.json({
+      totalSpent: totalResult[0]?.totalSpent || 0,
+      categoryTotals,
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch day summary" });
   }
+});
+
+/* ---------------- MONTHLY HISTORY ---------------- */
+// GET /expenses/monthly-summary
+router.get("/monthly-summary", auth, async (req, res) => {
+  try {
+    const summary = await Expense.aggregate([
+      {
+        $match: {
+          userId: new mongoose.Types.ObjectId(req.userId),
+        },
+      },
+      {
+        $group: {
+          _id: {
+            year: { $year: "$createdAt" },
+            month: { $month: "$createdAt" },
+          },
+          total: { $sum: "$amount" },
+        },
+      },
+      { $sort: { "_id.year": 1, "_id.month": 1 } },
+      {
+        $project: {
+          _id: 0,
+          year: "$_id.year",
+          month: "$_id.month",
+          total: 1,
+        },
+      },
+    ]);
+
+    res.json(summary);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch monthly summary" });
+  }
+});
+
+/* ---------------- NEXT MONTH PREDICTION ---------------- */
+// GET /expenses/predict-next-month
+router.get("/predict-next-month", auth, async (req, res) => {
+  try {
+    const history = await Expense.aggregate([
+      {
+        $match: {
+          userId: new mongoose.Types.ObjectId(req.userId),
+        },
+      },
+      {
+        $group: {
+          _id: {
+            year: { $year: "$createdAt" },
+            month: { $month: "$createdAt" },
+          },
+          total: { $sum: "$amount" },
+        },
+      },
+      { $sort: { "_id.year": 1, "_id.month": 1 } },
+    ]);
+
+    if (history.length === 0) {
+      return res.json({ predicted: 0 });
+    }
+
+    const recent = history.slice(-3);
+    const avg = recent.reduce((sum, m) => sum + m.total, 0) / recent.length;
+
+    res.json({ predicted: Math.round(avg) });
+  } catch (err) {
+    res.status(500).json({ error: "Prediction failed" });
+  }
+});
+// DEBUG ONLY — REMOVE AFTER
+router.get("/debug/user-expenses", auth, async (req, res) => {
+  const expenses = await Expense.find({ userId: req.userId });
+  res.json({
+    userIdFromToken: req.userId,
+    count: expenses.length,
+    expenses,
+  });
 });
 
 module.exports = router;
