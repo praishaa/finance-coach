@@ -22,12 +22,14 @@ router.post("/", auth, async (req, res) => {
 
     const prompt = `
 You are a personal finance coach.
-Give short, practical advice.
+
+Based on the expenses below, give EXACTLY 3 actionable tips.
+Each tip must be on a new line and start with a bullet (•).
 
 Recent expenses:
 ${expenseText}
 
-Provide 2-3 actionable tips.
+Do not give a summary. Only the 3 tips.
 `;
 
     const response = await fetch(
