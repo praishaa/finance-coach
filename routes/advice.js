@@ -46,7 +46,7 @@ Do not give a summary. Only the 3 tips.
           ],
           generationConfig: {
             temperature: 0.9,
-            maxOutputTokens: 200,
+            maxOutputTokens: 2048,
           },
         }),
       }
